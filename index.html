@@ -18,7 +18,9 @@ Copyright © 2020 Igor Polyakov
     <script src="//cdnjs.cloudflare.com/ajax/libs/angular.js/1.7.8/angular.min.js"></script>
     <script src="./credentials.js"></script>
     <script>
-        $.getScript('//maps.googleapis.com/maps/api/js?key=' + apiKey + '&libraries=geometry,places');
+        var script = document.createElement('script');
+        script.src = '//maps.googleapis.com/maps/api/js?key=' + apiKey + '&libraries=geometry,places';
+        document.head.appendChild(script);
     </script>
 </head>
 <body ng-cloak>
