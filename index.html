@@ -1,0 +1,256 @@
+<!--
+The MIT License
+Copyright © 2020 Igor Polyakov
+-->
+<!DOCTYPE html>
+<html lang="en" ng-app="StreetViewApp" ng-controller="MainController" class="ng-cloak">
+<head>
+    <meta charset="UTF-8">
+    <title>Google Street View addon: adding photos to Maps</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <link rel="stylesheet" href="//stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css">
+    <link rel="stylesheet" href="//use.fontawesome.com/releases/v5.8.2/css/all.css">
+
+    <script src="//code.jquery.com/jquery-3.3.1.min.js"></script>
+    <script src="//apis.google.com/js/api.js"></script>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js"></script>
+    <script src="//stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js"></script>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/angular.js/1.7.8/angular.min.js"></script>
+    <script src="./credentials.js"></script>
+    <script>
+        $.getScript('//maps.googleapis.com/maps/api/js?key=' + apiKey + '&libraries=geometry,places');
+    </script>
+</head>
+<body ng-cloak>
+<a target="_blank" href="https://github.com/ihoru/google_street_view_addon"><img
+        style="position: absolute; top: 0; right: 0; border: 0; z-index: 1000"
+        src="https://s3.amazonaws.com/github/ribbons/forkme_right_gray_6d6d6d.png" alt="Fork me on GitHub"></a>
+
+<div id="map"></div>
+<div>
+    <h3>How to use "Google Street View addon"?</h3>
+    <ol>
+        <li>Click on "search" icon with search query or without it</li>
+        <li>Every time you click it search radius increases</li>
+        <li>You can open a link to the Maps object to check if needed</li>
+        <li>Click button "set" to connect current photo with a place</li>
+    </ol>
+</div>
+<div class="list-group-item list-group-item-action"
+     ng-repeat="photo in photos track by photo.photoId.id"
+     id="photo_{{ photo.photoId.id }}">
+
+    <div class="row">
+        <div class="col">
+            <div>{{ $index + 1 }}. date: {{ photo.date }}, views: {{ photo.viewCount }}
+                <button type="button" class="btn btn-sm btn-danger" ng-click="delete(photo.photoId.id)">delete</button>
+            </div>
+            <div ng-show="photo.mapsPublishStatus">mapsPublishStatus: {{ photo.mapsPublishStatus }}</div>
+            <div ng-show="photo.places">place: {{ photo.places[0].name }}</div>
+            <form ng-submit="findPlace(photo)">
+                <div class="input-group input-group-sm mb-1">
+                    <button type="button" class="btn btn-sm btn-info" ng-click="hide(photo.photoId.id)">hide</button>
+                    <div class="input-group-prepend">
+                        <label class="input-group-text" ng-click="findPlace(photo)"
+                        ><i class="fas fa-search"></i></label>
+                    </div>
+                    <input type="search" class="form-control" placeholder="Поиск..." aria-label="Поиск..."
+                           ng-model="photo.searchPlace"/>
+                </div>
+            </form>
+            <div ng-repeat="place in photo.selectPlace">
+                <button type="button" class="btn btn-sm btn-dark" ng-click="setPlace(photo.photoId.id, place.place_id)">
+                    set
+                </button>
+                <span>{{ place.distance }}m</span>
+                <a ng-href="{{ place.link}}" target="_blank">{{ place.name }}</a>
+            </div>
+        </div>
+        <div class="col-8">
+            <div><a ng-href="{{ photo.shareLink }}" target="_blank"><img ng-src="{{ photo.thumbnailUrl }}"></a></div>
+        </div>
+    </div>
+</div>
+
+<button ng-click="next()" class="btn btn-secondary" ng-show="pageToken">next</button>
+<script>
+    angular.module('StreetViewApp', []).controller('MainController', function ($scope, $timeout) {
+        $scope.pageSize = 200;
+        $scope.pageToken = '';
+        $scope.photos = [];
+
+        if (typeof clientId === 'undefined' || !clientId || typeof apiKey === 'undefined' || !apiKey) {
+            alert('Variables clientId and apiKey are not configured properly.\n' +
+                'Create them in credentials.js file!');
+            return;
+        }
+
+        function authenticate() {
+            return gapi.auth2.getAuthInstance().signIn({
+                scope: 'https://www.googleapis.com/auth/streetviewpublish'
+            }).then(function () {
+                loadClient();
+            }, function (err) {
+                console.log(err);
+                alert('error');
+            });
+        }
+
+        function loadClient() {
+            gapi.client.setApiKey(apiKey);
+            return gapi.client.load('https://content.googleapis.com/discovery/v1/apis/streetviewpublish/v1/rest').then(function () {
+                $scope.next();
+            }, function (err) {
+                console.log(err);
+                alert('error');
+            });
+        }
+
+        function getPhotos(pageSize, pageToken) {
+            return gapi.client.streetviewpublish.photos.list({
+                pageSize: pageSize,
+                pageToken: pageToken
+            });
+        }
+
+        function deletePhoto(photoId) {
+            return gapi.client.streetviewpublish.photo.delete({
+                photoId: photoId
+            });
+        }
+
+        function updatePhoto(photoId, placeId) {
+            return gapi.client.streetviewpublish.photo.update({
+                updateMask: 'places',
+                id: photoId,
+                places: [{placeId: placeId}]
+            });
+        }
+
+        function getPlaces(query, latLngPair, radius, callback) {
+            var pyrmont = new google.maps.LatLng(latLngPair.latitude, latLngPair.longitude);
+            var map = new google.maps.Map(document.getElementById('map'), {
+                center: pyrmont,
+                zoom: 15
+            });
+            console.log('getPlaces before:', query, latLngPair, radius);
+            var request = {
+                location: pyrmont,
+                radius: radius || 100,
+                // radius: '5',
+                name: query,
+                // keyword: query,
+                // rankBy: google.maps.places.RankBy.DISTANCE
+            };
+            var service = new google.maps.places.PlacesService(map);
+            return service.nearbySearch(request, callback);
+        }
+
+        function processPhotos(photos) {
+            var result = [],
+                i, photo;
+            for (i in photos) {
+                photo = photos[i];
+                if (photo.places || photo.connections) {
+                    continue;
+                }
+                photo.date = photo.captureTime.split('T')[0];
+                result.push(photo);
+            }
+            console.log(result);
+            return result;
+        }
+
+        $scope.next = function () {
+            getPhotos($scope.pageSize, $scope.pageToken).then(function (response) {
+                console.log('Response', response);
+                const result = response.result;
+                $timeout(function () {
+                    $scope.photos = $scope.photos.concat(processPhotos(result.photos));
+                    $scope.pageToken = result.nextPageToken;
+                });
+            }, function (err) {
+                console.log(err);
+                alert('error');
+            });
+        };
+
+        function removePhoto(photoId) {
+            var i, photo;
+            for (i = 0; i < $scope.photos.length; ++i) {
+                photo = $scope.photos[i];
+                if (photo.photoId.id == photoId) {
+                    $timeout(function () {
+                        $scope.photos.splice(i, 1);
+                    });
+                    break;
+                }
+            }
+        }
+
+        $scope.delete = function (photoId) {
+            removePhoto(photoId);
+            deletePhoto(photoId).then(function (response) {
+                console.log(response);
+            }, function (err) {
+                alert(err);
+            });
+        };
+
+        $scope.hide = function (photoId) {
+            removePhoto(photoId);
+        };
+
+        $scope.findPlace = function (photo) {
+            var latLngPair = photo.pose.latLngPair;
+            var query = photo.searchPlace || '';
+            var radius = 100;
+            if (photo.lastSearchPlace === query) {
+                ++photo.searchTrial;
+                radius = radius * 2 ** photo.searchTrial;
+            } else {
+                photo.lastSearchPlace = query;
+                photo.searchTrial = 1;
+            }
+            getPlaces(query, latLngPair, radius, function (results, status) {
+                console.log('getPlaces after', query, latLngPair, radius, results, status);
+                if (status == google.maps.places.PlacesServiceStatus.OK) {
+                    var places = [], i, place, nameEncoded, lat, lng,
+                        point1 = new google.maps.LatLng(latLngPair.latitude, latLngPair.longitude), point2;
+                    for (i = 0; i < results.length; i++) {
+                        place = results[i];
+                        nameEncoded = encodeURIComponent(place.name);
+                        lat = place.geometry.location.lat();
+                        lng = place.geometry.location.lng();
+                        place.link = 'https://google.com/maps/search/' + nameEncoded + '/@' + lat + ',' + lng + ',17z?hl=en';
+                        point2 = new google.maps.LatLng(lat, lng);
+                        place.distance = Math.round(google.maps.geometry.spherical.computeDistanceBetween(point1, point2));
+                        places.push(place);
+                    }
+                    places = places.sort(function (a, b) {
+                        return a.distance > b.distance ? 1 : -1;
+                    });
+                    $timeout(function () {
+                        photo.selectPlace = places;
+                    });
+                }
+            });
+        };
+
+        $scope.setPlace = function (photoId, placeId) {
+            removePhoto(photoId);
+            updatePhoto(photoId, placeId).then(function (response) {
+                console.log(response);
+            }, function (err) {
+                alert(err);
+            });
+        };
+
+        gapi.load('client:auth2', function () {
+            gapi.auth2.init({client_id: clientId});
+            authenticate();
+        });
+    });
+</script>
+</body>
+</html>
