@@ -30,5 +30,8 @@ That's why this tiny single-page application was created, to allow you to connec
     * there will be a modal window opened with a request to choose and Google account to authorize application.
     * it will list data that application will get access to
 
+## Screenshots
+![Interface example](screenshot.png)
+
 Example how it works:
 https://iho.su/streetview/
